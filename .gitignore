@@ -1,0 +1,33 @@
+# Database files (user-specific)
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
+# Log files
+logs/
+*.log
+
+# Environment and config (contains user paths)
+# Copy config.example.php to config.php and customize
+.env
+config.php
+config.local.php
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# PHP dependencies (if any added later)
+vendor/
+composer.lock
