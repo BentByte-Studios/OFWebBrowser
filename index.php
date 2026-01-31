@@ -226,6 +226,14 @@ $creators = $globalDb->query("
         <div class="spinner" style="width:16px;height:16px;border:2px solid #8b5cf6;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
         <span style="font-size:0.9rem;color:#cbd5e1;" id="silentscanText">Syncing...</span>
     </div>
+
+    <!-- Initial Scan Overlay (shown when library is empty) -->
+    <div id="initialScanOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);align-items:center;justify-content:center;z-index:1001;flex-direction:column;gap:20px;">
+        <div class="spinner" style="width:50px;height:50px;border:4px solid #333;border-top-color:#00aff0;border-radius:50%;animation:spin 1s linear infinite;"></div>
+        <div style="color:#fff;font-size:1.25rem;font-weight:500;" id="initialScanText">Scanning Library...</div>
+        <div style="color:#888;font-size:0.9rem;" id="initialScanStatus">Preparing...</div>
+    </div>
+
     <style>@keyframes spin { to {transform: rotate(360deg);} }</style>
 
     <script>
@@ -235,6 +243,10 @@ $creators = $globalDb->query("
         const title = document.getElementById('scanTitle');
         const silentBadge = document.getElementById('silentScanBadge');
         const silentText = document.getElementById('silentscanText');
+        const initialOverlay = document.getElementById('initialScanOverlay');
+        const initialText = document.getElementById('initialScanText');
+        const initialStatus = document.getElementById('initialScanStatus');
+        const isLibraryEmpty = <?= empty($creators) ? 'true' : 'false' ?>;
 
         // Check for Auto-Scan on Load
         window.addEventListener('load', async () => {
@@ -243,8 +255,8 @@ $creators = $globalDb->query("
                 const data = await res.json();
                 if (data.status === 'ok') {
                     const now = Math.floor(Date.now() / 1000);
-                    // Default 1 hour interval
-                    if (now - data.last_scan > data.interval) {
+                    // Default 1 hour interval, or immediate if library is empty
+                    if (isLibraryEmpty || now - data.last_scan > data.interval) {
                         console.log("Auto-scanning...");
                         startScan(true);
                     }
@@ -254,8 +266,14 @@ $creators = $globalDb->query("
 
         async function startScan(isSilent = false) {
             if (!isSilent && !confirm("This will scan all creator folders and rebuild the global database. Continue?")) return;
-            
-            if (isSilent) {
+
+            const useInitialOverlay = isSilent && isLibraryEmpty;
+
+            if (useInitialOverlay) {
+                initialOverlay.style.display = 'flex';
+                initialText.innerText = 'Scanning Library...';
+                initialStatus.innerText = 'Preparing...';
+            } else if (isSilent) {
                 silentBadge.style.display = 'flex';
                 silentText.innerText = 'Syncing Content...';
             } else {
@@ -271,16 +289,20 @@ $creators = $globalDb->query("
                 
                 if (initData.status !== 'ok') throw new Error(initData.message || "Init failed");
                 
-                const creators = initData.creators; 
+                const creators = initData.creators;
                 const total = creators.length;
                 if (!isSilent) log(`Found ${total} creators.`);
-                
+                if (useInitialOverlay) initialStatus.innerText = `Found ${total} creators`;
+
                 // 2. Process each
                 for (let i = 0; i < total; i++) {
                     const folder = creators[i];
                     if (!isSilent) {
                         log(`Processing ${folder} (${i+1}/${total})...`);
                         title.innerText = `Scanning ${i+1}/${total}`;
+                    } else if (useInitialOverlay) {
+                        initialText.innerText = `Scanning ${i+1}/${total}`;
+                        initialStatus.innerText = folder;
                     } else {
                         silentText.innerText = `Syncing ${i+1}/${total}...`;
                     }
@@ -303,22 +325,28 @@ $creators = $globalDb->query("
                 if (!isSilent) {
                     log("Scan complete! Reloading...");
                     setTimeout(() => location.reload(), 1000);
+                } else if (useInitialOverlay) {
+                    initialText.innerText = 'Scan Complete!';
+                    initialStatus.innerText = 'Loading library...';
+                    setTimeout(() => location.reload(), 1000);
                 } else {
                     silentText.innerText = 'Sync Complete';
                     setTimeout(() => {
                         silentBadge.style.display = 'none';
-                        // Optional: Reload silently or just let user see new stuff on nav?
-                        // Let's reload to show new content if any
-                        location.reload(); 
+                        location.reload();
                     }, 2000);
                 }
-                
+
             } catch (e) {
                 console.error(e);
                 if (!isSilent) {
                     log("CRITICAL ERROR: " + e.message);
                     alert("Scan failed: " + e.message);
-                    modal.style.display = 'none'; 
+                    modal.style.display = 'none';
+                } else if (useInitialOverlay) {
+                    initialText.innerText = 'Scan Failed';
+                    initialStatus.innerText = e.message;
+                    setTimeout(() => initialOverlay.style.display = 'none', 3000);
                 } else {
                     silentText.innerText = 'Sync Failed';
                     setTimeout(() => silentBadge.style.display = 'none', 3000);
