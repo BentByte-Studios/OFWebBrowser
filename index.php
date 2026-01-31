@@ -294,29 +294,39 @@ $creators = $globalDb->query("
                 if (!isSilent) log(`Found ${total} creators.`);
                 if (useInitialOverlay) initialStatus.innerText = `Found ${total} creators`;
 
-                // 2. Process each
-                for (let i = 0; i < total; i++) {
-                    const folder = creators[i];
-                    if (!isSilent) {
-                        log(`Processing ${folder} (${i+1}/${total})...`);
-                        title.innerText = `Scanning ${i+1}/${total}`;
-                    } else if (useInitialOverlay) {
-                        initialText.innerText = `Scanning ${i+1}/${total}`;
-                        initialStatus.innerText = folder;
-                    } else {
-                        silentText.innerText = `Syncing ${i+1}/${total}...`;
-                    }
-                    
+                // 2. Process in parallel batches for speed
+                const CONCURRENCY = 3;
+                let completed = 0;
+
+                const processCreator = async (folder) => {
                     const res = await fetch(`scan.php?action=process&folder=${encodeURIComponent(folder)}`);
                     const data = await res.json();
-                    
+                    completed++;
+
                     if (data.status === 'skipped') {
                         if (!isSilent) log(`Skipped ${folder}: ${data.message}`);
                     } else if (data.status !== 'ok') {
                         if (!isSilent) log(`ERROR processing ${folder}: ${data.message}`);
+                    } else if (!isSilent) {
+                        log(`Processed ${folder} (${completed}/${total})`);
                     }
-                    
-                    if (!isSilent) progressFill.style.width = `${((i+1)/total)*100}%`;
+
+                    // Update progress UI
+                    if (!isSilent) {
+                        title.innerText = `Scanning ${completed}/${total}`;
+                        progressFill.style.width = `${(completed/total)*100}%`;
+                    } else if (useInitialOverlay) {
+                        initialText.innerText = `Scanning ${completed}/${total}`;
+                        initialStatus.innerText = folder;
+                    } else {
+                        silentText.innerText = `Syncing ${completed}/${total}...`;
+                    }
+                };
+
+                // Process in batches of CONCURRENCY
+                for (let i = 0; i < total; i += CONCURRENCY) {
+                    const batch = creators.slice(i, i + CONCURRENCY);
+                    await Promise.all(batch.map(processCreator));
                 }
                 
                 // 3. Mark Complete

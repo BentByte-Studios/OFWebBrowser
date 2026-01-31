@@ -160,6 +160,11 @@ try {
         
         // 2. Process Posts (and messages, stories, others)
         // ------------------------------------------------
+        // SQLite performance tuning
+        $globalDb->execute("PRAGMA journal_mode = WAL");
+        $globalDb->execute("PRAGMA synchronous = NORMAL");
+        $globalDb->execute("PRAGMA cache_size = 10000");
+
         $globalDb->getPdo()->beginTransaction();
 
         // Clear old posts/media for this creator to ensure clean sync
