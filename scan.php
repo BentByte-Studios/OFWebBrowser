@@ -103,11 +103,21 @@ try {
         $existing = $globalDb->queryOne("SELECT id FROM creators WHERE username = ?", [$folderName]);
         $creatorId = $existing ? $existing['id'] : null;
         
-        // Fetch Metadata
-        $row = $sourceDb->queryOne("SELECT userdetail, bio, description, about, text FROM profiles LIMIT 1");
-        if (!$row) $row = $sourceDb->queryOne("SELECT bio, description, about, text FROM users LIMIT 1"); // Fallback
-        
-        $bio = $row['userdetail'] ?? $row['bio'] ?? $row['description'] ?? $row['about'] ?? $row['text'] ?? "";
+        // Fetch Metadata - try different column names for compatibility
+        $bio = "";
+        $row = $sourceDb->queryOne("SELECT userdetail FROM profiles LIMIT 1");
+        if ($row && !empty($row['userdetail'])) {
+            $bio = $row['userdetail'];
+        } else {
+            // Check if users table exists before querying
+            $usersTable = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name='users'");
+            if ($usersTable) {
+                $row = $sourceDb->queryOne("SELECT bio FROM users LIMIT 1");
+                if ($row && !empty($row['bio'])) {
+                    $bio = $row['bio'];
+                }
+            }
+        }
         
         // Resolve Images
         $avatar = findProfileImage($profilePath, 'avatar');
@@ -130,84 +140,99 @@ try {
             $creatorId = $globalDb->getPdo()->lastInsertId();
         }
         
-        // 2. Process Posts
-        // ----------------
-        // Fetch all posts from source
-        // Check if post_id column exists
-        $hasPostIdCol = false;
-        $cols = $sourceDb->query("PRAGMA table_info(posts)");
-        foreach ($cols as $c) { if ($c['name'] === 'post_id') $hasPostIdCol = true; }
-        
-        $postsValues = [];
-        $select = "id, text, price, paid, archived, created_at, text" . ($hasPostIdCol ? ", post_id" : "");
-        $sourcePosts = $sourceDb->query("SELECT $select FROM posts");
-        
+        // 2. Process Posts (and messages, stories, others)
+        // ------------------------------------------------
         $globalDb->getPdo()->beginTransaction();
-        
-        // Clear old posts/media for this creator to ensure clean sync? 
-        // Or UPSERT? UPSERT is safer for partial scans but might be slow.
-        // Let's Delete all for this creator and re-insert. It's cleaner for a "Rescan".
+
+        // Clear old posts/media for this creator to ensure clean sync
         $globalDb->execute("DELETE FROM medias WHERE creator_id=?", [$creatorId]);
         $globalDb->execute("DELETE FROM posts WHERE creator_id=?", [$creatorId]);
-        
+
         // Prepare Statements
-        $insertPost = $globalDb->getPdo()->prepare("INSERT INTO posts (post_id, creator_id, text, price, paid, archived, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $insertMedia = $globalDb->getPdo()->prepare("INSERT INTO medias (media_id, post_id, creator_id, filename, directory, size, type, downloaded, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        
-        $postMap = []; // Internal ID -> Real Post ID
-        
-        foreach ($sourcePosts as $p) {
-            // Determine Real Post ID
-            // If post_id col exists, use it. Else use internal id? No, internal ID is not safe globally.
-            // If post_id missing, we can make a fake one using hash of date+text?
-            // Most OF-DL versions have post_id.
-            $realPostId = $hasPostIdCol ? $p['post_id'] : $p['id']; 
-            
-            // Clean Text
-            $txt = $p['text'] ?? '';
-            
-            $insertPost->execute([
-                $realPostId,
-                $creatorId,
-                $txt,
-                $p['price'] ?? 0,
-                $p['paid'] ?? 0,
-                $p['archived'] ?? 0,
-                $p['created_at']
-            ]);
-            
-            // Map internal ID to Real ID for media linking
-            $postMap[$p['id']] = $realPostId;
-            if ($hasPostIdCol) $postMap[$p['post_id']] = $realPostId;
+        $insertPost = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO posts (post_id, creator_id, text, price, paid, archived, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $insertMedia = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO medias (media_id, post_id, creator_id, filename, directory, size, type, downloaded, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+        $postMap = []; // post_id -> post_id (for media linking)
+        $totalPosts = 0;
+
+        // Tables that contain post-like content
+        $postTables = ['posts', 'messages', 'stories', 'others'];
+
+        foreach ($postTables as $tableName) {
+            // Check if table exists
+            $tableCheck = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [$tableName]);
+            if (!$tableCheck) continue;
+
+            // Fetch posts from this table
+            $sourcePosts = $sourceDb->query("SELECT id, post_id, text, price, paid, archived, created_at FROM $tableName");
+
+            foreach ($sourcePosts as $p) {
+                $realPostId = $p['post_id'] ?? $p['id'];
+
+                $insertPost->execute([
+                    $realPostId,
+                    $creatorId,
+                    $p['text'] ?? '',
+                    $p['price'] ?? 0,
+                    $p['paid'] ? 1 : 0,
+                    $p['archived'] ? 1 : 0,
+                    $p['created_at']
+                ]);
+
+                // Map for media linking
+                $postMap[$realPostId] = $realPostId;
+                $totalPosts++;
+            }
         }
         
         // 3. Process Media
         // ----------------
         $sourceMedia = $sourceDb->query("SELECT * FROM medias");
+        $totalMedia = 0;
+
         foreach ($sourceMedia as $m) {
-            $postId = 0;
-            if (isset($postMap[$m['post_id']])) $postId = $postMap[$m['post_id']];
-            
-            // Determine Type
-            $ext = strtolower(pathinfo($m['filename'], PATHINFO_EXTENSION));
-            $type = in_array($ext, ['mp4','mov','wmv','avi','webm']) ? 'video' : 'photo';
-            
+            $postId = $m['post_id'] ?? 0;
+
+            // Determine Type - use media_type if available, otherwise guess from extension
+            $type = 'photo';
+            if (!empty($m['media_type'])) {
+                // media_type values: "Videos", "Images", "Audios", etc.
+                $mediaType = strtolower($m['media_type']);
+                if (strpos($mediaType, 'video') !== false) {
+                    $type = 'video';
+                } elseif (strpos($mediaType, 'audio') !== false) {
+                    $type = 'audio';
+                }
+            } else {
+                // Fallback to extension-based detection
+                $ext = strtolower(pathinfo($m['filename'] ?? '', PATHINFO_EXTENSION));
+                if (in_array($ext, ['mp4', 'mov', 'wmv', 'avi', 'webm', 'm4v', 'mkv'])) {
+                    $type = 'video';
+                } elseif (in_array($ext, ['mp3', 'wav', 'ogg', 'm4a', 'aac'])) {
+                    $type = 'audio';
+                }
+            }
+
+            // Skip if no filename
+            if (empty($m['filename'])) continue;
+
             $insertMedia->execute([
-                $m['media_id'] ?? $m['id'], // Fallback
+                $m['media_id'] ?? $m['id'],
                 $postId,
                 $creatorId,
                 $m['filename'],
-                $m['directory'],
-                $m['size'],
+                $m['directory'] ?? '',
+                $m['size'] ?? 0,
                 $type,
-                $m['downloaded'],
+                $m['downloaded'] ?? 0,
                 $m['created_at']
             ]);
+            $totalMedia++;
         }
-        
+
         $globalDb->getPdo()->commit();
-        
-        echo json_encode(['status' => 'ok', 'creator' => $folderName, 'posts_count' => count($sourcePosts), 'media_count' => count($sourceMedia)]);
+
+        echo json_encode(['status' => 'ok', 'creator' => $folderName, 'posts_count' => $totalPosts, 'media_count' => $totalMedia]);
     }
 
 } catch (Exception $e) {
