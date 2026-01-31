@@ -204,7 +204,7 @@ $creators = $globalDb->query("
                             <?= $p['post_count'] ?> posts • <?= $p['media_count'] ?> media
                         </div>
                         <?php if ($p['bio']): ?>
-                            <div class="bio"><?= nl2br(htmlspecialchars($p['bio'])) ?></div>
+                            <div class="bio"><?= nl2br(htmlspecialchars(cleanText($p['bio']))) ?></div>
                         <?php endif; ?>
                     </div>
                 </a>
