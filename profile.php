@@ -663,6 +663,21 @@ function resolveGlobalPath($base, $dir, $file) {
             if (e.key === 'ArrowLeft') nav(-1);
             if (e.key === 'ArrowRight') nav(1);
         });
+
+        // Force video thumbnails to load when visible
+        const videoObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const video = entry.target;
+                    video.load();
+                    videoObserver.unobserve(video);
+                }
+            });
+        }, { rootMargin: '100px' });
+
+        document.querySelectorAll('video[preload="metadata"]').forEach(video => {
+            videoObserver.observe(video);
+        });
     </script>
 </body>
 </html>
