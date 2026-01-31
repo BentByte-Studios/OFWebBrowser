@@ -105,9 +105,9 @@ try {
         
         // Fetch Metadata - try different column names for compatibility
         $bio = "";
-        $row = $sourceDb->queryOne("SELECT userdetail FROM profiles LIMIT 1");
-        if ($row && !empty($row['userdetail'])) {
-            $bio = $row['userdetail'];
+        $row = $sourceDb->queryOne("SELECT bio FROM profiles LIMIT 1");
+        if ($row && !empty($row['bio'])) {
+            $bio = $row['bio'];
         } else {
             // Check if users table exists before querying
             $usersTable = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name='users'");

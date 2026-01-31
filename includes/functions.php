@@ -32,12 +32,12 @@ function getProfiles($rootPath) {
         if (file_exists($dbPath)) {
             $db = new OFDatabase($dbPath);
             // Try standard tables
-            $row = $db->queryOne("SELECT userdetail, bio, description, about, text FROM profiles LIMIT 1");
+            $row = $db->queryOne("SELECT bio, description, about, text FROM profiles LIMIT 1");
             if (!$row) $row = $db->queryOne("SELECT bio, description, about, text FROM users LIMIT 1");
-            
+
             if ($row) {
                 // Pick the first non-empty value
-                $bio = $row['userdetail'] ?? $row['bio'] ?? $row['description'] ?? $row['about'] ?? $row['text'] ?? "";
+                $bio = $row['bio'] ?? $row['description'] ?? $row['about'] ?? $row['text'] ?? "";
             }
         }
 
