@@ -83,6 +83,7 @@ class OFGlobalDatabase {
                 paid INTEGER,
                 archived INTEGER,
                 created_at DATETIME,
+                source_type TEXT DEFAULT 'posts',
                 UNIQUE(post_id, creator_id)
             )",
             "CREATE TABLE IF NOT EXISTS medias (
@@ -100,6 +101,7 @@ class OFGlobalDatabase {
             )",
             // Indexes for common query patterns
             "CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts(creator_id)",
+            "CREATE INDEX IF NOT EXISTS idx_posts_creator_source ON posts(creator_id, source_type)",
             "CREATE INDEX IF NOT EXISTS idx_media_post ON medias(post_id)",
             "CREATE INDEX IF NOT EXISTS idx_media_creator ON medias(creator_id)",
             // Composite index for filtered media queries (performance optimization)

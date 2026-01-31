@@ -105,11 +105,29 @@ try {
         
         // Fetch Metadata - try different column names for compatibility
         $bio = "";
-        $row = $sourceDb->queryOne("SELECT bio FROM profiles LIMIT 1");
-        if ($row && !empty($row['bio'])) {
-            $bio = $row['bio'];
-        } else {
-            // Check if users table exists before querying
+
+        // Check profiles table for bio-like columns
+        $profilesTable = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name='profiles'");
+        if ($profilesTable) {
+            // Get column names from profiles table
+            $columns = $sourceDb->query("PRAGMA table_info(profiles)");
+            $colNames = array_column($columns, 'name');
+
+            // Try bio columns in order of preference
+            $bioColumns = ['bio', 'description', 'about', 'text'];
+            foreach ($bioColumns as $col) {
+                if (in_array($col, $colNames)) {
+                    $row = $sourceDb->queryOne("SELECT $col FROM profiles LIMIT 1");
+                    if ($row && !empty($row[$col])) {
+                        $bio = $row[$col];
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Fall back to users table if no bio found
+        if (empty($bio)) {
             $usersTable = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name='users'");
             if ($usersTable) {
                 $row = $sourceDb->queryOne("SELECT bio FROM users LIMIT 1");
@@ -149,7 +167,7 @@ try {
         $globalDb->execute("DELETE FROM posts WHERE creator_id=?", [$creatorId]);
 
         // Prepare Statements
-        $insertPost = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO posts (post_id, creator_id, text, price, paid, archived, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $insertPost = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO posts (post_id, creator_id, text, price, paid, archived, created_at, source_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
         $insertMedia = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO medias (media_id, post_id, creator_id, filename, directory, size, type, downloaded, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
         $postMap = []; // post_id -> post_id (for media linking)
@@ -176,7 +194,8 @@ try {
                     $p['price'] ?? 0,
                     $p['paid'] ? 1 : 0,
                     $p['archived'] ? 1 : 0,
-                    $p['created_at']
+                    $p['created_at'],
+                    $tableName
                 ]);
 
                 // Map for media linking
