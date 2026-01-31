@@ -75,7 +75,7 @@ class OFGlobalDatabase {
                 scanned_at DATETIME
             )",
             "CREATE TABLE IF NOT EXISTS posts (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 post_id INTEGER,
                 creator_id INTEGER,
                 text TEXT,
@@ -86,7 +86,7 @@ class OFGlobalDatabase {
                 UNIQUE(post_id, creator_id)
             )",
             "CREATE TABLE IF NOT EXISTS medias (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 media_id INTEGER,
                 post_id INTEGER,
                 creator_id INTEGER,
@@ -96,7 +96,7 @@ class OFGlobalDatabase {
                 type TEXT,
                 downloaded INTEGER,
                 created_at DATETIME,
-                UNIQUE(media_id)
+                UNIQUE(media_id, creator_id)
             )",
             // Indexes for common query patterns
             "CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts(creator_id)",
