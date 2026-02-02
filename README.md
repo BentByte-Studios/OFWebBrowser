@@ -194,7 +194,8 @@ OnlyFans/
 │   ├── Posts/
 │   └── Profile/
 ├── CreatorName2/
-│   └── user_data.db
+│   ├── Metadata/
+│   │   └── user_data.db
 └── ...
 ```
 
