@@ -42,18 +42,29 @@ $stats = $globalDb->queryOne("
         (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type != 'messages') as post_count,
         (SELECT COUNT(*) FROM medias WHERE creator_id = ?) as media_count_all,
         (SELECT COUNT(*) FROM medias WHERE creator_id = ? AND type='video') as media_count_video,
-        (SELECT COUNT(*) FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages') as message_media_count
-", [$creatorId, $creatorId, $creatorId, $creatorId]);
+        (SELECT COUNT(*) FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages') as message_media_count,
+        (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type = 'messages') as message_post_count,
+        (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type = 'messages' AND from_user = 0) as message_creator_count,
+        (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type = 'messages' AND from_user = 1) as message_user_count
+", [$creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId]);
 
 $postCount = $stats['post_count'] ?? 0;
 $mediaCountAll = $stats['media_count_all'] ?? 0;
 $mediaCountVideo = $stats['media_count_video'] ?? 0;
 $mediaCountPhoto = $mediaCountAll - $mediaCountVideo;
 $messageMediaCount = $stats['message_media_count'] ?? 0;
+$messagePostCount = $stats['message_post_count'] ?? 0;
+$messageCreatorCount = $stats['message_creator_count'] ?? 0;
+$messageUserCount = $stats['message_user_count'] ?? 0;
+
+// Messages config
+$messagesViewMode = defined('MESSAGES_VIEW_MODE') ? MESSAGES_VIEW_MODE : 'posts';
+$messagesShowCreator = defined('MESSAGES_SHOW_CREATOR') ? MESSAGES_SHOW_CREATOR : true;
+$messagesShowUser = defined('MESSAGES_SHOW_USER') ? MESSAGES_SHOW_USER : true;
 
 // Validate input parameters (whitelist approach)
 $activeTab = in_array($_GET['tab'] ?? '', ['posts', 'media', 'messages']) ? $_GET['tab'] : 'posts';
-$filter = in_array($_GET['filter'] ?? '', ['all', 'photo', 'video']) ? $_GET['filter'] : 'all';
+$filter = in_array($_GET['filter'] ?? '', ['all', 'photo', 'video', 'creator', 'user']) ? $_GET['filter'] : 'all';
 
 $posts = [];
 $mediaGrid = [];
@@ -100,23 +111,78 @@ if ($activeTab === 'posts') {
 
     $mediaGrid = $globalDb->query("SELECT * FROM medias WHERE creator_id = ? $typeClause ORDER BY id DESC LIMIT 40 OFFSET $offset", [$creatorId]);
 } elseif ($activeTab === 'messages') {
-    $typeClause = "";
-    $count = $messageMediaCount;
+    $messagePosts = []; // For posts view mode
 
-    if ($filter === 'video') {
-        $typeClause = "AND m.type='video'";
-        // Recount for filtered messages
-        $count = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video'", [$creatorId])['cnt'] ?? 0;
+    if ($messagesViewMode === 'posts') {
+        // Posts view mode - show full messages like Posts tab
+        $senderClause = "";
+        $count = $messagePostCount;
+
+        // Filter by sender
+        if ($filter === 'creator') {
+            $senderClause = "AND from_user = 0";
+            $count = $messageCreatorCount;
+        } elseif ($filter === 'user') {
+            $senderClause = "AND from_user = 1";
+            $count = $messageUserCount;
+        }
+
+        // Apply config filters
+        if (!$messagesShowCreator && !$messagesShowUser) {
+            $count = 0;
+        } elseif (!$messagesShowCreator) {
+            $senderClause = "AND from_user = 1";
+            if ($filter === 'all') $count = $messageUserCount;
+        } elseif (!$messagesShowUser) {
+            $senderClause = "AND from_user = 0";
+            if ($filter === 'all') $count = $messageCreatorCount;
+        }
+
+        $totalPages = max(1, ceil($count / $perPage));
+        $offset = ($page - 1) * $perPage;
+
+        // Fetch message posts
+        $messagePosts = $globalDb->query("SELECT * FROM posts WHERE creator_id = ? AND source_type = 'messages' $senderClause ORDER BY created_at DESC LIMIT $perPage OFFSET $offset", [$creatorId]);
+
+        // Fetch media for these posts
+        if (!empty($messagePosts)) {
+            $postIds = array_column($messagePosts, 'post_id');
+            if (!empty($postIds)) {
+                $placeholders = implode(',', array_fill(0, count($postIds), '?'));
+                $params = array_merge($postIds, [$creatorId]);
+                $allMedia = $globalDb->query(
+                    "SELECT * FROM medias WHERE post_id IN ($placeholders) AND creator_id = ? ORDER BY id ASC",
+                    $params
+                );
+
+                $mediaMap = [];
+                foreach ($allMedia as $m) $mediaMap[$m['post_id']][] = $m;
+
+                foreach ($messagePosts as &$p) {
+                    $realId = $p['post_id'];
+                    $p['media'] = $mediaMap[$realId] ?? [];
+                }
+            }
+        }
+    } else {
+        // Media view mode - show media grid (original behavior)
+        $typeClause = "";
+        $count = $messageMediaCount;
+
+        if ($filter === 'video') {
+            $typeClause = "AND m.type='video'";
+            $count = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video'", [$creatorId])['cnt'] ?? 0;
+        }
+        if ($filter === 'photo') {
+            $typeClause = "AND m.type='photo'";
+            $count = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='photo'", [$creatorId])['cnt'] ?? 0;
+        }
+
+        $totalPages = max(1, ceil($count / 40));
+        $offset = ($page - 1) * 40;
+
+        $mediaGrid = $globalDb->query("SELECT m.* FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' $typeClause ORDER BY m.id DESC LIMIT 40 OFFSET $offset", [$creatorId]);
     }
-    if ($filter === 'photo') {
-        $typeClause = "AND m.type='photo'";
-        $count = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='photo'", [$creatorId])['cnt'] ?? 0;
-    }
-
-    $totalPages = max(1, ceil($count / 40));
-    $offset = ($page - 1) * 40;
-
-    $mediaGrid = $globalDb->query("SELECT m.* FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' $typeClause ORDER BY m.id DESC LIMIT 40 OFFSET $offset", [$creatorId]);
 }
 
 // Build lightbox media array with resolved paths
@@ -135,7 +201,20 @@ if ($activeTab === 'posts') {
             ];
         }
     }
-} elseif ($activeTab === 'media' || $activeTab === 'messages') {
+} elseif ($activeTab === 'messages' && $messagesViewMode === 'posts' && !empty($messagePosts)) {
+    // Messages in posts view mode
+    foreach ($messagePosts as &$p) {
+        foreach ($p['media'] as $m) {
+            $fullPath = resolveGlobalPath($basePath, $m['directory'], $m['filename']);
+            $lightboxMedia[] = [
+                'src' => 'view.php?path=' . urlencode($fullPath),
+                'type' => $m['type'],
+                'id' => $m['id'],
+                'post_id' => $p['post_id']
+            ];
+        }
+    }
+} elseif ($activeTab === 'media' || ($activeTab === 'messages' && $messagesViewMode === 'media')) {
     foreach ($mediaGrid as $m) {
         $fullPath = resolveGlobalPath($basePath, $m['directory'], $m['filename']);
         $lightboxMedia[] = [
@@ -497,7 +576,7 @@ function resolveGlobalPath($base, $dir, $file) {
                     <?= $mediaCountAll ?> MEDIA
                 </a>
                 <a href="?id=<?= $creatorId ?>&tab=messages" class="nav-item <?= $activeTab === 'messages' ? 'active' : '' ?>">
-                    <?= $messageMediaCount ?> MESSAGES
+                    <?= $messagesViewMode === 'posts' ? $messagePostCount : $messageMediaCount ?> MESSAGES
                 </a>
             </div>
         </div>
@@ -617,44 +696,130 @@ function resolveGlobalPath($base, $dir, $file) {
 
         <?php elseif ($activeTab === 'messages'): ?>
             <!-- MESSAGES VIEW -->
-            <?php
-                // Get filtered counts for messages
-                $msgVideoCount = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video'", [$creatorId])['cnt'] ?? 0;
-                $msgPhotoCount = $messageMediaCount - $msgVideoCount;
-            ?>
-            <div class="filter-bar">
-                <a href="?id=<?= $creatorId ?>&tab=messages&filter=all" class="pill <?= $filter === 'all' ? 'active' : '' ?>">All <?= $messageMediaCount ?></a>
-                <a href="?id=<?= $creatorId ?>&tab=messages&filter=photo" class="pill <?= $filter === 'photo' ? 'active' : '' ?>">Photos <?= $msgPhotoCount ?></a>
-                <a href="?id=<?= $creatorId ?>&tab=messages&filter=video" class="pill <?= $filter === 'video' ? 'active' : '' ?>">Videos <?= $msgVideoCount ?></a>
-            </div>
+            <?php if ($messagesViewMode === 'posts'): ?>
+                <!-- Posts View Mode -->
+                <div class="filter-bar">
+                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=all" class="pill <?= $filter === 'all' ? 'active' : '' ?>">All <?= $messagePostCount ?></a>
+                    <?php if ($messagesShowCreator): ?>
+                        <a href="?id=<?= $creatorId ?>&tab=messages&filter=creator" class="pill <?= $filter === 'creator' ? 'active' : '' ?>">Creator <?= $messageCreatorCount ?></a>
+                    <?php endif; ?>
+                    <?php if ($messagesShowUser): ?>
+                        <a href="?id=<?= $creatorId ?>&tab=messages&filter=user" class="pill <?= $filter === 'user' ? 'active' : '' ?>">You <?= $messageUserCount ?></a>
+                    <?php endif; ?>
+                </div>
 
-            <div class="feed">
-                <?php if (empty($mediaGrid)): ?>
-                    <div style="padding:40px;text-align:center;color:var(--text-secondary);">
-                        No message media found.
-                    </div>
-                <?php else: ?>
-                    <div class="full-media-grid">
-                        <?php foreach ($mediaGrid as $index => $m):
-                             $mId = $m['id'];
-                             $lbIndex = $lightboxIndex[$mId] ?? -1;
-                             if ($lbIndex === -1) continue;
-                             $src = $lightboxMedia[$lbIndex]['src'];
-                             $isVid = $lightboxMedia[$lbIndex]['type'] === 'video';
-                        ?>
-                            <div class="full-media-item" onclick="openLightbox(<?= $lbIndex ?>, false)">
-                                <?php if ($isVid): ?>
-                                    <video src="<?= $src ?>#t=0.001" muted preload="metadata"></video>
-                                    <div class="type-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
+                <div class="feed">
+                    <?php if (empty($messagePosts)): ?>
+                        <div style="padding:40px;text-align:center;color:var(--text-secondary);">
+                            No messages found.
+                        </div>
+                    <?php endif; ?>
+
+                    <?php foreach ($messagePosts as $post): ?>
+                        <?php $isFromUser = ($post['from_user'] ?? 0) == 1; ?>
+                        <div class="post-card">
+                            <div class="post-header">
+                                <?php if ($isFromUser): ?>
+                                    <div class="post-avatar" style="background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;">You</div>
+                                <?php elseif ($avatar): ?>
+                                    <img src="<?= $avatar ?>" class="post-avatar">
                                 <?php else: ?>
-                                    <img src="<?= $src ?>" loading="lazy">
+                                    <div class="post-avatar" style="background:#555"></div>
                                 <?php endif; ?>
+                                <div class="post-meta-info">
+                                    <div class="post-user-name">
+                                        <?= $isFromUser ? 'You' : htmlspecialchars($username) ?>
+                                        <?php if (!$isFromUser): ?>
+                                            <svg class="verified-icon" style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="post-date"><?= date('M j, Y', strtotime($post['created_at'])) ?></div>
+                                </div>
                             </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-            <?php renderPagination($page, $totalPages, $creatorId, 'messages', $filter); ?>
+
+                            <?php if (!empty($post['text'])): ?>
+                                <div class="post-content"><?= cleanText($post['text']) ?></div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($post['media'])): ?>
+                                <div class="post-media-carousel">
+                                    <?php
+                                        $mediaCount = count($post['media']);
+                                        foreach ($post['media'] as $index => $m):
+                                            $mId = $m['id'];
+                                            $lbIndex = $lightboxIndex[$mId] ?? -1;
+                                            if ($lbIndex === -1) continue;
+                                            $src = $lightboxMedia[$lbIndex]['src'];
+                                            $isVid = $lightboxMedia[$lbIndex]['type'] === 'video';
+                                            $isActive = ($index === 0) ? 'active' : '';
+                                    ?>
+                                        <div class="carousel-item media-wrapper <?= $isActive ?>" onclick="openLightbox(<?= $lbIndex ?>, <?= $post['post_id'] ?>)">
+                                            <?php if ($isVid): ?>
+                                                <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="metadata"></video>
+                                                <video src="<?= $src ?>#t=0.001" class="one-media" preload="metadata"></video>
+                                                <div class="play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+                                            <?php else: ?>
+                                                <img src="<?= $src ?>" class="media-blur" loading="lazy">
+                                                <img src="<?= $src ?>" class="one-media" loading="lazy">
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endforeach; ?>
+
+                                    <?php if ($mediaCount > 1): ?>
+                                        <button class="carousel-btn carousel-prev" onclick="event.stopPropagation(); moveCarousel(this, -1)">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                                        </button>
+                                        <button class="carousel-btn carousel-next" onclick="event.stopPropagation(); moveCarousel(this, 1)">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php renderPagination($page, $totalPages, $creatorId, 'messages', $filter); ?>
+
+            <?php else: ?>
+                <!-- Media View Mode (original grid) -->
+                <?php
+                    $msgVideoCount = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video'", [$creatorId])['cnt'] ?? 0;
+                    $msgPhotoCount = $messageMediaCount - $msgVideoCount;
+                ?>
+                <div class="filter-bar">
+                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=all" class="pill <?= $filter === 'all' ? 'active' : '' ?>">All <?= $messageMediaCount ?></a>
+                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=photo" class="pill <?= $filter === 'photo' ? 'active' : '' ?>">Photos <?= $msgPhotoCount ?></a>
+                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=video" class="pill <?= $filter === 'video' ? 'active' : '' ?>">Videos <?= $msgVideoCount ?></a>
+                </div>
+
+                <div class="feed">
+                    <?php if (empty($mediaGrid)): ?>
+                        <div style="padding:40px;text-align:center;color:var(--text-secondary);">
+                            No message media found.
+                        </div>
+                    <?php else: ?>
+                        <div class="full-media-grid">
+                            <?php foreach ($mediaGrid as $index => $m):
+                                 $mId = $m['id'];
+                                 $lbIndex = $lightboxIndex[$mId] ?? -1;
+                                 if ($lbIndex === -1) continue;
+                                 $src = $lightboxMedia[$lbIndex]['src'];
+                                 $isVid = $lightboxMedia[$lbIndex]['type'] === 'video';
+                            ?>
+                                <div class="full-media-item" onclick="openLightbox(<?= $lbIndex ?>, false)">
+                                    <?php if ($isVid): ?>
+                                        <video src="<?= $src ?>#t=0.001" muted preload="metadata"></video>
+                                        <div class="type-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
+                                    <?php else: ?>
+                                        <img src="<?= $src ?>" loading="lazy">
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <?php renderPagination($page, $totalPages, $creatorId, 'messages', $filter); ?>
+            <?php endif; ?>
         <?php endif; ?>
 
     <!-- Lightbox (Reused Logic) -->
@@ -758,7 +923,7 @@ function renderPagination($page, $totalPages, $creatorId, $activeTab = 'posts', 
     
     // Construct query param string
     $queryParams = '&tab=' . urlencode($activeTab);
-    if ($activeTab === 'media') {
+    if ($activeTab === 'media' || $activeTab === 'messages') {
         $queryParams .= '&filter=' . urlencode($filter);
     }
     

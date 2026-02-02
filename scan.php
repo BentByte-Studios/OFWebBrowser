@@ -180,7 +180,7 @@ try {
         $globalDb->execute("DELETE FROM posts WHERE creator_id=?", [$creatorId]);
 
         // Prepare Statements
-        $insertPost = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO posts (post_id, creator_id, text, price, paid, archived, created_at, source_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $insertPost = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO posts (post_id, creator_id, text, price, paid, archived, created_at, source_type, from_user) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $insertMedia = $globalDb->getPdo()->prepare("INSERT OR IGNORE INTO medias (media_id, post_id, creator_id, filename, directory, size, type, downloaded, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
         $postMap = []; // post_id -> post_id (for media linking)
@@ -189,16 +189,62 @@ try {
         // Tables that contain post-like content
         $postTables = ['posts', 'messages', 'stories', 'others'];
 
+        // Get creator's user_id from profiles table (for determining message sender)
+        $creatorUserId = null;
+        $profilesCheck = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name='profiles'");
+        if ($profilesCheck) {
+            $profile = $sourceDb->queryOne("SELECT user_id FROM profiles LIMIT 1");
+            if ($profile) {
+                $creatorUserId = $profile['user_id'];
+            }
+        }
+
         foreach ($postTables as $tableName) {
             // Check if table exists
             $tableCheck = $sourceDb->queryOne("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [$tableName]);
             if (!$tableCheck) continue;
 
+            // Check what columns exist for messages table
+            $hasFromUser = false;
+            $hasUserId = false;
+            if ($tableName === 'messages') {
+                $columns = $sourceDb->query("PRAGMA table_info($tableName)");
+                foreach ($columns as $col) {
+                    if ($col['name'] === 'fromUser') {
+                        $hasFromUser = true;
+                    }
+                    if ($col['name'] === 'user_id') {
+                        $hasUserId = true;
+                    }
+                }
+            }
+
             // Fetch posts from this table
-            $sourcePosts = $sourceDb->query("SELECT id, post_id, text, price, paid, archived, created_at FROM $tableName");
+            $selectFields = "id, post_id, text, price, paid, archived, created_at";
+            if ($hasFromUser) {
+                $selectFields .= ", fromUser";
+            }
+            if ($hasUserId) {
+                $selectFields .= ", user_id";
+            }
+            $sourcePosts = $sourceDb->query("SELECT $selectFields FROM $tableName");
 
             foreach ($sourcePosts as $p) {
                 $realPostId = $p['post_id'] ?? $p['id'];
+
+                // from_user: 0 = creator, 1 = subscriber (user)
+                $fromUser = 0;
+                if ($tableName === 'messages') {
+                    if ($hasFromUser && isset($p['fromUser'])) {
+                        // Direct fromUser column (some OF-DL versions)
+                        $fromUser = $p['fromUser'] ? 1 : 0;
+                    } elseif ($hasUserId && isset($p['user_id']) && $creatorUserId !== null) {
+                        // Compare user_id with creator's user_id
+                        // If user_id matches creator, it's from creator (0)
+                        // If user_id differs, it's from subscriber (1)
+                        $fromUser = ($p['user_id'] == $creatorUserId) ? 0 : 1;
+                    }
+                }
 
                 $insertPost->execute([
                     $realPostId,
@@ -208,7 +254,8 @@ try {
                     $p['paid'] ? 1 : 0,
                     $p['archived'] ? 1 : 0,
                     $p['created_at'],
-                    $tableName
+                    $tableName,
+                    $fromUser
                 ]);
 
                 // Map for media linking

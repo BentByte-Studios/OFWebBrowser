@@ -84,6 +84,7 @@ class OFGlobalDatabase {
                 archived INTEGER,
                 created_at DATETIME,
                 source_type TEXT DEFAULT 'posts',
+                from_user INTEGER DEFAULT 0,
                 UNIQUE(post_id, creator_id)
             )",
             "CREATE TABLE IF NOT EXISTS medias (
@@ -119,6 +120,19 @@ class OFGlobalDatabase {
         ];
 
         foreach ($queries as $q) {
+            try {
+                $this->pdo->exec($q);
+            } catch (PDOException $e) {
+                ErrorHandler::log("Schema init failed: " . $e->getMessage() . " | SQL: " . $q, 'ERROR');
+            }
+        }
+
+        // Migration: Add from_user column if it doesn't exist (for existing databases)
+        $migrations = [
+            "ALTER TABLE posts ADD COLUMN from_user INTEGER DEFAULT 0"
+        ];
+
+        foreach ($migrations as $q) {
             try {
                 $this->pdo->exec($q);
             } catch (PDOException $e) {
