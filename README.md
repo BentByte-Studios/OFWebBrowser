@@ -5,6 +5,7 @@ A lightweight PHP web application for browsing OnlyFans backup files. View your 
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4?logo=php&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/k86x44ubJR)
 
 ## Features
 
@@ -198,6 +199,12 @@ OnlyFans/
 │   │   └── user_data.db
 └── ...
 ```
+
+## Community
+
+Join our Discord server for support, feature requests, and discussion:
+
+[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/k86x44ubJR)
 
 ## Contributing
 
