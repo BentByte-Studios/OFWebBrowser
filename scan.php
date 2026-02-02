@@ -29,10 +29,13 @@ $globalDb = new OFGlobalDatabase($globalDbPath);
 try {
     if ($action === 'status') {
         $lastScan = $globalDb->getMeta('last_scan_success');
+        $autoSyncEnabled = defined('AUTO_SYNC_ENABLED') ? AUTO_SYNC_ENABLED : true;
+        $scanInterval = defined('SCAN_INTERVAL') ? SCAN_INTERVAL : 3600;
         echo json_encode([
-            'status' => 'ok', 
+            'status' => 'ok',
             'last_scan' => $lastScan ? (int)$lastScan : 0,
-            'interval' => 3600 // 1 Hour Default
+            'interval' => $scanInterval,
+            'auto_sync_enabled' => $autoSyncEnabled
         ]);
         exit;
     }

@@ -15,7 +15,10 @@ define('SITE_TITLE', 'OF Web Browser');
 // Number of items per page
 define('ITEMS_PER_PAGE', 50);
 
-// Auto-scan interval in seconds (3600 = 1 hour)
+// Auto-Sync Settings
+// Enable or disable automatic database sync on page load
+define('AUTO_SYNC_ENABLED', true);
+// Auto-sync interval in seconds (3600 = 1 hour)
 define('SCAN_INTERVAL', 3600);
 
 // Timezone
