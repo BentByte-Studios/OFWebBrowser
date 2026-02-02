@@ -18,7 +18,8 @@ A lightweight PHP web application for browsing OnlyFans backup files. View your 
 
 ## Screenshots
 
-The interface mirrors the OnlyFans look and feel with a dark theme, creator cards, post feeds, and media grids.
+<img width="1920" height="921" alt="Screenshot 2026-02-02 010006" src="https://github.com/user-attachments/assets/e7c0377e-4f7a-4f16-83e6-03324ecdfd69" />
+<img width="1922" height="915" alt="Screenshot 2026-02-02 010142" src="https://github.com/user-attachments/assets/e669d288-dea9-406d-8a07-009b891128db" />
 
 ## Requirements
 
