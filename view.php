@@ -1,5 +1,12 @@
 <?php
 require_once 'config.php';
+require_once 'includes/auth.php';
+
+// Require authentication for media serving
+if (!isAuthenticated()) {
+    header("HTTP/1.0 401 Unauthorized");
+    exit;
+}
 
 $path = $_GET['path'] ?? '';
 

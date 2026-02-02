@@ -6,6 +6,7 @@ header('Content-Type: application/json');
 set_time_limit(300); // 5 mins per request should be plenty for one creator
 
 require_once 'config.php';
+require_once 'includes/auth.php';
 require_once 'includes/db.php';
 require_once 'includes/global_db.php';
 require_once 'includes/functions.php';
@@ -13,6 +14,13 @@ require_once 'includes/error_handler.php';
 
 // Initialize error handler for logging
 ErrorHandler::init();
+
+// Require authentication for API
+if (!isAuthenticated()) {
+    http_response_code(401);
+    echo json_encode(['status' => 'error', 'message' => 'Authentication required']);
+    exit;
+}
 
 $action = $_GET['action'] ?? '';
 $globalDbPath = __DIR__ . '/db/global.db';

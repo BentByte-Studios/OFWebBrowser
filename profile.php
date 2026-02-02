@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+require_once 'includes/auth.php';
 require_once 'includes/db.php';
 require_once 'includes/global_db.php';
 require_once 'includes/functions.php';
@@ -7,6 +8,9 @@ require_once 'includes/error_handler.php';
 
 // Initialize error handler
 ErrorHandler::init();
+
+// Require authentication
+requireAuth();
 
 // Initialize Global DB
 $globalDbPath = __DIR__ . '/db/global.db';

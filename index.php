@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+require_once 'includes/auth.php';
 require_once 'includes/db.php';
 require_once 'includes/global_db.php';
 require_once 'includes/functions.php';
@@ -7,6 +8,9 @@ require_once 'includes/error_handler.php';
 
 // Initialize error handler
 ErrorHandler::init();
+
+// Require authentication
+requireAuth();
 
 // Initialize Global DB
 $globalDbPath = __DIR__ . '/db/global.db';
@@ -177,7 +181,10 @@ $creators = $globalDb->query("
     <div class="container">
         <div class="header-bar">
             <h1><?= SITE_TITLE ?></h1>
-            <button class="btn" onclick="startScan()">Rescan Library</button>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="btn" onclick="startScan()">Rescan Library</button>
+                <a href="logout.php" class="btn" style="background: transparent; border: 1px solid var(--border-color);">Logout</a>
+            </div>
         </div>
         
         <?php if (empty($creators)): ?>
