@@ -20,3 +20,11 @@ define('SCAN_INTERVAL', 3600);
 
 // Timezone
 date_default_timezone_set('America/Chicago');
+
+// Authentication Settings
+// On first login with default password, you'll be prompted to set a new password.
+// Password is stored securely in the database after first change.
+// To reset a forgotten password, run: php reset-password.php
+define('AUTH_USERNAME', 'admin');
+define('AUTH_PASSWORD_HASH', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'); // Default: 'password'
+define('AUTH_SESSION_LIFETIME', 86400); // Session lifetime in seconds (24 hours)
