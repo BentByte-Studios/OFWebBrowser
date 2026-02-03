@@ -248,10 +248,10 @@ $creators = $globalDb->query("
             <div class="grid" id="creatorsGrid">
                 <?php foreach ($creators as $p): ?>
                 <a href="profile.php?id=<?= $p['id'] ?>" class="card">
-                    <div class="card-header" style="<?= $p['header_path'] ? "background-image: url('view.php?path=".urlencode($p['header_path'])."');" : '' ?>"></div>
+                    <div class="card-header" <?= $p['header_path'] ? "data-bg=\"view.php?path=".urlencode($p['header_path'])."\"" : '' ?>></div>
                     <div class="card-body">
                         <?php if ($p['avatar_path']): ?>
-                            <img src="view.php?path=<?= urlencode($p['avatar_path']) ?>" class="avatar" alt="Avatar">
+                            <img src="view.php?path=<?= urlencode($p['avatar_path']) ?>" class="avatar" alt="Avatar" loading="lazy">
                         <?php else: ?>
                             <div class="avatar" style="display:flex;align-items:center;justify-content:center;color:#fff;">
                                 <?= strtoupper(substr($p['username'], 0, 1)) ?>
@@ -382,8 +382,34 @@ $creators = $globalDb->query("
             searchInput.addEventListener('input', filterCards);
         }
 
-        // Check for Auto-Scan on Load
+        // Lazy load header background images
+        const headerObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const header = entry.target;
+                    const bgUrl = header.dataset.bg;
+                    if (bgUrl) {
+                        header.style.backgroundImage = `url('${bgUrl}')`;
+                        header.removeAttribute('data-bg');
+                    }
+                    headerObserver.unobserve(header);
+                }
+            });
+        }, { rootMargin: '100px' });
+
+        document.querySelectorAll('.card-header[data-bg]').forEach(header => {
+            headerObserver.observe(header);
+        });
+
+        // Check for Auto-Scan on Load (with loop prevention)
         window.addEventListener('load', async () => {
+            // Prevent scan loop: skip if we just scanned
+            const lastScanTime = sessionStorage.getItem('lastScanComplete');
+            if (lastScanTime && Date.now() - parseInt(lastScanTime) < 30000) {
+                console.log("Skipping auto-scan: recently completed");
+                return;
+            }
+
             try {
                 const res = await fetch('scan.php?action=status');
                 const data = await res.json();
@@ -465,7 +491,10 @@ $creators = $globalDb->query("
                 
                 // 3. Mark Complete
                 await fetch('scan.php?action=complete');
-                
+
+                // Prevent scan loop on reload
+                sessionStorage.setItem('lastScanComplete', Date.now().toString());
+
                 if (!isSilent) {
                     log("Scan complete! Reloading...");
                     setTimeout(() => location.reload(), 1000);
