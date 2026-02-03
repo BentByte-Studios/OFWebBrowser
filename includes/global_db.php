@@ -107,6 +107,8 @@ class OFGlobalDatabase {
             "CREATE INDEX IF NOT EXISTS idx_media_creator ON medias(creator_id)",
             // Composite index for filtered media queries (performance optimization)
             "CREATE INDEX IF NOT EXISTS idx_media_creator_type ON medias(creator_id, type)",
+            // Index for message filtering queries
+            "CREATE INDEX IF NOT EXISTS idx_posts_creator_source_fromuser ON posts(creator_id, source_type, from_user)",
             "CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -127,9 +129,11 @@ class OFGlobalDatabase {
             }
         }
 
-        // Migration: Add from_user column if it doesn't exist (for existing databases)
+        // Migration: Add columns if they don't exist (for existing databases)
         $migrations = [
-            "ALTER TABLE posts ADD COLUMN from_user INTEGER DEFAULT 0"
+            "ALTER TABLE posts ADD COLUMN from_user INTEGER DEFAULT 0",
+            "ALTER TABLE creators ADD COLUMN post_count INTEGER DEFAULT 0",
+            "ALTER TABLE creators ADD COLUMN media_count INTEGER DEFAULT 0"
         ];
 
         foreach ($migrations as $q) {

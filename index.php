@@ -20,12 +20,14 @@ $globalDb = new OFGlobalDatabase($globalDbPath);
 $globalDb->initSchema();
 
 // Fetch Profiles from Global DB
-// We use a LEFT JOIN to count media efficiently
+// Use pre-computed counts for better performance (falls back to subquery if counts are 0)
 $creators = $globalDb->query("
-    SELECT c.*, 
-           (SELECT COUNT(*) FROM medias m WHERE m.creator_id = c.id) as media_count,
-           (SELECT COUNT(*) FROM posts p WHERE p.creator_id = c.id) as post_count
-    FROM creators c 
+    SELECT c.*,
+           CASE WHEN c.media_count > 0 THEN c.media_count
+                ELSE (SELECT COUNT(*) FROM medias m WHERE m.creator_id = c.id) END as media_count,
+           CASE WHEN c.post_count > 0 THEN c.post_count
+                ELSE (SELECT COUNT(*) FROM posts p WHERE p.creator_id = c.id) END as post_count
+    FROM creators c
     ORDER BY c.username ASC
 ");
 
@@ -339,31 +341,45 @@ $creators = $globalDb->query("
         const initialStatus = document.getElementById('initialScanStatus');
         const isLibraryEmpty = <?= empty($creators) ? 'true' : 'false' ?>;
 
+        // Debounce utility
+        function debounce(fn, delay) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
+
         // Search functionality
         const searchInput = document.getElementById('searchInput');
         const creatorsGrid = document.getElementById('creatorsGrid');
         const noResults = document.getElementById('noResults');
 
         if (searchInput && creatorsGrid) {
-            searchInput.addEventListener('input', function() {
-                const query = this.value.toLowerCase().trim();
-                const cards = creatorsGrid.querySelectorAll('.card');
+            const cards = creatorsGrid.querySelectorAll('.card');
+            // Pre-cache card data for faster filtering
+            const cardData = Array.from(cards).map(card => ({
+                el: card,
+                name: (card.querySelector('.name')?.textContent || '').toLowerCase(),
+                bio: (card.querySelector('.bio')?.textContent || '').toLowerCase()
+            }));
+
+            const filterCards = debounce(function() {
+                const query = searchInput.value.toLowerCase().trim();
                 let visibleCount = 0;
 
-                cards.forEach(card => {
-                    const name = card.querySelector('.name')?.textContent.toLowerCase() || '';
-                    const bio = card.querySelector('.bio')?.textContent.toLowerCase() || '';
+                cardData.forEach(({ el, name, bio }) => {
                     const matches = name.includes(query) || bio.includes(query);
-
-                    card.style.display = matches ? '' : 'none';
+                    el.style.display = matches ? '' : 'none';
                     if (matches) visibleCount++;
                 });
 
-                // Show/hide no results message
                 if (noResults) {
                     noResults.style.display = (visibleCount === 0 && query !== '') ? 'block' : 'none';
                 }
-            });
+            }, 150);
+
+            searchInput.addEventListener('input', filterCards);
         }
 
         // Check for Auto-Scan on Load

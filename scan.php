@@ -314,6 +314,12 @@ try {
 
         $globalDb->getPdo()->commit();
 
+        // Update pre-computed counts for faster index page loading
+        $globalDb->execute(
+            "UPDATE creators SET post_count=?, media_count=? WHERE id=?",
+            [$totalPosts, $totalMedia, $creatorId]
+        );
+
         echo json_encode(['status' => 'ok', 'creator' => $folderName, 'posts_count' => $totalPosts, 'media_count' => $totalMedia]);
     }
 

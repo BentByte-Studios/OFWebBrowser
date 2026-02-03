@@ -59,6 +59,7 @@ $etag = md5($realPath . filemtime($realPath));
 header("Content-Type: $contentType");
 header("Last-Modified: $tsstring");
 header("ETag: \"$etag\"");
+header("Cache-Control: public, max-age=86400"); // Cache for 24 hours
 header("Accept-Ranges: bytes");
 
 // Range handling

@@ -36,23 +36,26 @@ $bio = $creator['bio'];
 $avatar = $creator['avatar_path'] ? 'view.php?path=' . urlencode($creator['avatar_path']) : null;
 $header = $creator['header_path'] ? 'view.php?path=' . urlencode($creator['header_path']) : null;
 
-// Stats - Combined into single query for performance (was 3 separate queries)
+// Stats - Combined into single query for performance
 $stats = $globalDb->queryOne("
     SELECT
         (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type != 'messages') as post_count,
         (SELECT COUNT(*) FROM medias WHERE creator_id = ?) as media_count_all,
         (SELECT COUNT(*) FROM medias WHERE creator_id = ? AND type='video') as media_count_video,
         (SELECT COUNT(*) FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages') as message_media_count,
+        (SELECT COUNT(*) FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video') as message_video_count,
         (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type = 'messages') as message_post_count,
         (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type = 'messages' AND from_user = 0) as message_creator_count,
         (SELECT COUNT(*) FROM posts WHERE creator_id = ? AND source_type = 'messages' AND from_user = 1) as message_user_count
-", [$creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId]);
+", [$creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId, $creatorId]);
 
 $postCount = $stats['post_count'] ?? 0;
 $mediaCountAll = $stats['media_count_all'] ?? 0;
 $mediaCountVideo = $stats['media_count_video'] ?? 0;
 $mediaCountPhoto = $mediaCountAll - $mediaCountVideo;
 $messageMediaCount = $stats['message_media_count'] ?? 0;
+$messageVideoCount = $stats['message_video_count'] ?? 0;
+$messagePhotoCount = $messageMediaCount - $messageVideoCount;
 $messagePostCount = $stats['message_post_count'] ?? 0;
 $messageCreatorCount = $stats['message_creator_count'] ?? 0;
 $messageUserCount = $stats['message_user_count'] ?? 0;
@@ -171,11 +174,11 @@ if ($activeTab === 'posts') {
 
         if ($filter === 'video') {
             $typeClause = "AND m.type='video'";
-            $count = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video'", [$creatorId])['cnt'] ?? 0;
+            $count = $messageVideoCount; // Use cached count
         }
         if ($filter === 'photo') {
             $typeClause = "AND m.type='photo'";
-            $count = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='photo'", [$creatorId])['cnt'] ?? 0;
+            $count = $messagePhotoCount; // Use cached count
         }
 
         $totalPages = max(1, ceil($count / 40));
@@ -492,31 +495,6 @@ function resolveGlobalPath($base, $dir, $file) {
         .site-footer a:hover { color: var(--accent); }
         .site-footer svg { vertical-align: middle; margin-right: 5px; }
     </style>
-    <script>
-        function moveCarousel(btn, dir) {
-            // Find container
-            const carousel = btn.closest('.post-media-carousel');
-            const items = carousel.querySelectorAll('.carousel-item');
-            
-            // Find active index
-            let activeIdx = 0;
-            items.forEach((item, idx) => {
-                if (item.classList.contains('active')) activeIdx = idx;
-                item.classList.remove('active');
-            });
-            
-            // Calc new index
-            let newIdx = activeIdx + dir;
-            if (newIdx < 0) newIdx = items.length - 1;
-            if (newIdx >= items.length) newIdx = 0;
-            
-            items[newIdx].classList.add('active');
-            
-            // Pause videos when sliding away
-            const prevVid = items[activeIdx].querySelector('video');
-            if (prevVid) prevVid.pause();
-        }
-    </script>
 </head>
 <body>
     <div class="main-wrapper">
@@ -642,8 +620,8 @@ function resolveGlobalPath($base, $dir, $file) {
                                 ?>
                                     <div class="carousel-item media-wrapper <?= $isActive ?>" onclick="openLightbox(<?= $lbIndex ?>, <?= $post['post_id'] ?>)">
                                         <?php if ($isVid): ?>
-                                            <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="metadata"></video>
-                                            <video src="<?= $src ?>#t=0.001" class="one-media" preload="metadata"></video>
+                                            <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="none"></video>
+                                            <video src="<?= $src ?>#t=0.001" class="one-media" preload="none"></video>
                                             <div class="play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
                                         <?php else: ?>
                                             <img src="<?= $src ?>" class="media-blur" loading="lazy">
@@ -699,7 +677,7 @@ function resolveGlobalPath($base, $dir, $file) {
                         ?>
                             <div class="full-media-item" onclick="openLightbox(<?= $lbIndex ?>, false)">
                                 <?php if ($isVid): ?>
-                                    <video src="<?= $src ?>#t=0.001" muted preload="metadata"></video>
+                                    <video src="<?= $src ?>#t=0.001" muted preload="none"></video>
                                     <div class="type-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
                                 <?php else: ?>
                                     <img src="<?= $src ?>" loading="lazy">
@@ -772,8 +750,8 @@ function resolveGlobalPath($base, $dir, $file) {
                                     ?>
                                         <div class="carousel-item media-wrapper <?= $isActive ?>" onclick="openLightbox(<?= $lbIndex ?>, <?= $post['post_id'] ?>)">
                                             <?php if ($isVid): ?>
-                                                <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="metadata"></video>
-                                                <video src="<?= $src ?>#t=0.001" class="one-media" preload="metadata"></video>
+                                                <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="none"></video>
+                                                <video src="<?= $src ?>#t=0.001" class="one-media" preload="none"></video>
                                                 <div class="play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
                                             <?php else: ?>
                                                 <img src="<?= $src ?>" class="media-blur" loading="lazy">
@@ -799,14 +777,10 @@ function resolveGlobalPath($base, $dir, $file) {
 
             <?php else: ?>
                 <!-- Media View Mode (original grid) -->
-                <?php
-                    $msgVideoCount = $globalDb->queryOne("SELECT COUNT(*) as cnt FROM medias m JOIN posts p ON m.post_id = p.post_id AND m.creator_id = p.creator_id WHERE m.creator_id = ? AND p.source_type = 'messages' AND m.type='video'", [$creatorId])['cnt'] ?? 0;
-                    $msgPhotoCount = $messageMediaCount - $msgVideoCount;
-                ?>
                 <div class="filter-bar">
                     <a href="?id=<?= $creatorId ?>&tab=messages&filter=all" class="pill <?= $filter === 'all' ? 'active' : '' ?>">All <?= $messageMediaCount ?></a>
-                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=photo" class="pill <?= $filter === 'photo' ? 'active' : '' ?>">Photos <?= $msgPhotoCount ?></a>
-                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=video" class="pill <?= $filter === 'video' ? 'active' : '' ?>">Videos <?= $msgVideoCount ?></a>
+                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=photo" class="pill <?= $filter === 'photo' ? 'active' : '' ?>">Photos <?= $messagePhotoCount ?></a>
+                    <a href="?id=<?= $creatorId ?>&tab=messages&filter=video" class="pill <?= $filter === 'video' ? 'active' : '' ?>">Videos <?= $messageVideoCount ?></a>
                 </div>
 
                 <div class="feed">
@@ -825,7 +799,7 @@ function resolveGlobalPath($base, $dir, $file) {
                             ?>
                                 <div class="full-media-item" onclick="openLightbox(<?= $lbIndex ?>, false)">
                                     <?php if ($isVid): ?>
-                                        <video src="<?= $src ?>#t=0.001" muted preload="metadata"></video>
+                                        <video src="<?= $src ?>#t=0.001" muted preload="none"></video>
                                         <div class="type-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
                                     <?php else: ?>
                                         <img src="<?= $src ?>" loading="lazy">
@@ -849,6 +823,27 @@ function resolveGlobalPath($base, $dir, $file) {
     </div>
 
     <script>
+        // Carousel navigation function (moved from head for non-blocking)
+        function moveCarousel(btn, dir) {
+            const carousel = btn.closest('.post-media-carousel');
+            const items = carousel.querySelectorAll('.carousel-item');
+
+            let activeIdx = 0;
+            items.forEach((item, idx) => {
+                if (item.classList.contains('active')) activeIdx = idx;
+                item.classList.remove('active');
+            });
+
+            let newIdx = activeIdx + dir;
+            if (newIdx < 0) newIdx = items.length - 1;
+            if (newIdx >= items.length) newIdx = 0;
+
+            items[newIdx].classList.add('active');
+
+            const prevVid = items[activeIdx].querySelector('video');
+            if (prevVid) prevVid.pause();
+        }
+
         const media = <?= json_encode($lightboxMedia) ?>;
         let currentPlaylist = [];
         let currentIndex = 0; // Index relative to currentPlaylist
@@ -925,7 +920,7 @@ function resolveGlobalPath($base, $dir, $file) {
             });
         }, { rootMargin: '100px' });
 
-        document.querySelectorAll('video[preload="metadata"]').forEach(video => {
+        document.querySelectorAll('video[preload="none"]').forEach(video => {
             videoObserver.observe(video);
         });
     </script>
