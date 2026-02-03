@@ -84,7 +84,44 @@ $creators = $globalDb->query("
             transition: background 0.2s;
         }
         .btn:hover { background: var(--accent-hover); }
-        
+
+        .search-input {
+            width: 200px;
+            padding: 8px 12px;
+            padding-left: 36px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 50px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s, width 0.2s;
+        }
+        .search-input:focus {
+            border-color: var(--accent);
+            width: 280px;
+        }
+        .search-input::placeholder {
+            color: var(--text-secondary);
+        }
+        .search-wrapper {
+            position: relative;
+        }
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            pointer-events: none;
+        }
+        .no-results {
+            text-align: center;
+            padding: 50px;
+            color: var(--text-secondary);
+            display: none;
+        }
+
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -182,18 +219,31 @@ $creators = $globalDb->query("
         <div class="header-bar">
             <h1><?= SITE_TITLE ?></h1>
             <div style="display: flex; gap: 10px; align-items: center;">
+                <?php if (!empty($creators)): ?>
+                <div class="search-wrapper">
+                    <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="M21 21l-4.35-4.35"></path>
+                    </svg>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Search..." autocomplete="off">
+                </div>
+                <?php endif; ?>
                 <button class="btn" onclick="startScan()">Rescan Library</button>
                 <a href="logout.php" class="btn" style="background: transparent; border: 1px solid var(--border-color);">Logout</a>
             </div>
         </div>
-        
+
         <?php if (empty($creators)): ?>
             <div style="text-align:center; padding: 50px; color: var(--text-secondary);">
                 <h2>Library is Empty</h2>
                 <p>Click "Rescan Library" to import your content.</p>
             </div>
         <?php else: ?>
-            <div class="grid">
+            <div class="no-results" id="noResults">
+                <h3>No creators found</h3>
+                <p>Try a different search term</p>
+            </div>
+            <div class="grid" id="creatorsGrid">
                 <?php foreach ($creators as $p): ?>
                 <a href="profile.php?id=<?= $p['id'] ?>" class="card">
                     <div class="card-header" style="<?= $p['header_path'] ? "background-image: url('view.php?path=".urlencode($p['header_path'])."');" : '' ?>"></div>
@@ -288,6 +338,33 @@ $creators = $globalDb->query("
         const initialText = document.getElementById('initialScanText');
         const initialStatus = document.getElementById('initialScanStatus');
         const isLibraryEmpty = <?= empty($creators) ? 'true' : 'false' ?>;
+
+        // Search functionality
+        const searchInput = document.getElementById('searchInput');
+        const creatorsGrid = document.getElementById('creatorsGrid');
+        const noResults = document.getElementById('noResults');
+
+        if (searchInput && creatorsGrid) {
+            searchInput.addEventListener('input', function() {
+                const query = this.value.toLowerCase().trim();
+                const cards = creatorsGrid.querySelectorAll('.card');
+                let visibleCount = 0;
+
+                cards.forEach(card => {
+                    const name = card.querySelector('.name')?.textContent.toLowerCase() || '';
+                    const bio = card.querySelector('.bio')?.textContent.toLowerCase() || '';
+                    const matches = name.includes(query) || bio.includes(query);
+
+                    card.style.display = matches ? '' : 'none';
+                    if (matches) visibleCount++;
+                });
+
+                // Show/hide no results message
+                if (noResults) {
+                    noResults.style.display = (visibleCount === 0 && query !== '') ? 'block' : 'none';
+                }
+            });
+        }
 
         // Check for Auto-Scan on Load
         window.addEventListener('load', async () => {
