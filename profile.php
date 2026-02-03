@@ -390,12 +390,22 @@ function resolveGlobalPath($base, $dir, $file) {
             opacity: 0.6;
             z-index: 0;
         }
-        .one-media { 
+        .one-media {
             position: relative; z-index: 1;
             width: 100%; max-height: 600px;
-            object-fit: contain; 
-            background: transparent; 
-            display: block; 
+            object-fit: contain;
+            background: transparent;
+            display: block;
+        }
+        .video-thumb {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 200px;
+        }
+        .full-media-item .video-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            min-height: 150px;
         }
 
         .play-overlay {
@@ -589,7 +599,7 @@ function resolveGlobalPath($base, $dir, $file) {
                     <div class="post-card">
                         <div class="post-header">
                             <?php if ($avatar): ?>
-                                <img src="<?= $avatar ?>" class="post-avatar">
+                                <img src="<?= $avatar ?>" class="post-avatar" loading="lazy">
                             <?php else: ?>
                                 <div class="post-avatar" style="background:#555"></div>
                             <?php endif; ?>
@@ -620,8 +630,7 @@ function resolveGlobalPath($base, $dir, $file) {
                                 ?>
                                     <div class="carousel-item media-wrapper <?= $isActive ?>" onclick="openLightbox(<?= $lbIndex ?>, <?= $post['post_id'] ?>)">
                                         <?php if ($isVid): ?>
-                                            <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="none"></video>
-                                            <video src="<?= $src ?>#t=0.001" class="one-media" preload="none"></video>
+                                            <video data-src="<?= $src ?>#t=0.001" class="one-media video-thumb" muted preload="none"></video>
                                             <div class="play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
                                         <?php else: ?>
                                             <img src="<?= $src ?>" class="media-blur" loading="lazy">
@@ -677,7 +686,7 @@ function resolveGlobalPath($base, $dir, $file) {
                         ?>
                             <div class="full-media-item" onclick="openLightbox(<?= $lbIndex ?>, false)">
                                 <?php if ($isVid): ?>
-                                    <video src="<?= $src ?>#t=0.001" muted preload="none"></video>
+                                    <video data-src="<?= $src ?>#t=0.001" class="video-thumb" muted preload="none"></video>
                                     <div class="type-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
                                 <?php else: ?>
                                     <img src="<?= $src ?>" loading="lazy">
@@ -717,7 +726,7 @@ function resolveGlobalPath($base, $dir, $file) {
                                 <?php if ($isFromUser): ?>
                                     <div class="post-avatar" style="background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;">You</div>
                                 <?php elseif ($avatar): ?>
-                                    <img src="<?= $avatar ?>" class="post-avatar">
+                                    <img src="<?= $avatar ?>" class="post-avatar" loading="lazy">
                                 <?php else: ?>
                                     <div class="post-avatar" style="background:#555"></div>
                                 <?php endif; ?>
@@ -750,8 +759,7 @@ function resolveGlobalPath($base, $dir, $file) {
                                     ?>
                                         <div class="carousel-item media-wrapper <?= $isActive ?>" onclick="openLightbox(<?= $lbIndex ?>, <?= $post['post_id'] ?>)">
                                             <?php if ($isVid): ?>
-                                                <video src="<?= $src ?>#t=0.001" class="media-blur" muted preload="none"></video>
-                                                <video src="<?= $src ?>#t=0.001" class="one-media" preload="none"></video>
+                                                <video data-src="<?= $src ?>#t=0.001" class="one-media video-thumb" muted preload="none"></video>
                                                 <div class="play-overlay"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
                                             <?php else: ?>
                                                 <img src="<?= $src ?>" class="media-blur" loading="lazy">
@@ -799,7 +807,7 @@ function resolveGlobalPath($base, $dir, $file) {
                             ?>
                                 <div class="full-media-item" onclick="openLightbox(<?= $lbIndex ?>, false)">
                                     <?php if ($isVid): ?>
-                                        <video src="<?= $src ?>#t=0.001" muted preload="none"></video>
+                                        <video data-src="<?= $src ?>#t=0.001" class="video-thumb" muted preload="none"></video>
                                         <div class="type-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div>
                                     <?php else: ?>
                                         <img src="<?= $src ?>" loading="lazy">
@@ -909,20 +917,36 @@ function resolveGlobalPath($base, $dir, $file) {
             if (e.key === 'ArrowRight') nav(1);
         });
 
-        // Force video thumbnails to load when visible
+        // Lazy load video thumbnails - ONE at a time for smooth scrolling
+        const videoQueue = [];
+        let isLoadingVideo = false;
+
+        function loadNextVideo() {
+            if (isLoadingVideo || videoQueue.length === 0) return;
+
+            const video = videoQueue.shift();
+            if (!video || video.src) return; // Already loaded
+
+            isLoadingVideo = true;
+            video.src = video.dataset.src;
+            video.onloadeddata = video.onerror = () => {
+                isLoadingVideo = false;
+                setTimeout(loadNextVideo, 50); // Small delay between loads
+            };
+            video.load();
+        }
+
         const videoObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const video = entry.target;
-                    video.load();
-                    videoObserver.unobserve(video);
+                if (entry.isIntersecting && !entry.target.src) {
+                    videoQueue.push(entry.target);
+                    videoObserver.unobserve(entry.target);
+                    loadNextVideo();
                 }
             });
-        }, { rootMargin: '100px' });
+        }, { rootMargin: '50px' });
 
-        document.querySelectorAll('video[preload="none"]').forEach(video => {
-            videoObserver.observe(video);
-        });
+        document.querySelectorAll('video.video-thumb[data-src]').forEach(v => videoObserver.observe(v));
     </script>
 
     <footer class="site-footer">
